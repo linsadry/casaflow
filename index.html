@@ -830,15 +830,21 @@ function resetForm() {
   document.getElementById('f-valor').value = '';
   document.getElementById('f-obs').value = '';
   if (state.selectedWorkerId) document.getElementById('f-worker').value = state.selectedWorkerId;
-  tipoChanged();
+  preencherValorDiaria();
+}
+
+function preencherValorDiaria() {
+  const wid = document.getElementById('f-worker').value || state.selectedWorkerId;
+  const w = getWorker(wid);
+  if (w && w.valorDiaria > 0) document.getElementById('f-valor').value = w.valorDiaria;
 }
 
 function tipoChanged() {
   const tipo = document.getElementById('f-tipo').value;
   if (tipo === 'diaria') {
-    const wid = document.getElementById('f-worker').value;
-    const w = getWorker(wid);
-    if (w && w.valorDiaria > 0) document.getElementById('f-valor').value = w.valorDiaria;
+    preencherValorDiaria();
+  } else {
+    document.getElementById('f-valor').value = '';
   }
 }
 
