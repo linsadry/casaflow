@@ -1033,7 +1033,9 @@ function renderCalendario() {
     const events=porDia[ds]||[];
     const totalDia=events.filter(l=>l.tipo==='diaria').reduce((a,l)=>a+parseFloat(l.valor),0);
     const qtdDiarias=events.filter(l=>l.tipo==='diaria').length;
-    html+='<div class="cal-cell '+(events.length?'has-event ':' ')+(isoDay===hoje?'today':'')+'" onclick="mostrarDiaDetail(\''+isoDay+'\')">'+'<div class="cal-num">'+d+'</div>'+(qtdDiarias>0?'<div class="cal-event-dot">🌿 '+qtdDiarias+'x</div>':'')+(totalDia>0?'<div class="cal-event-val">'+fmtMoeda(totalDia)+'</div>':'')+(events.some(l=>l.tipo!=='diaria')?'<div class="cal-event-dot" style="color:var(--eventide);">● outros</div>':'')+'</div>';
+    const tipoLabel={pagamento:'💙 Pagamento',adiantamento:'🟡 Adiantamento',extra:'🌸 Extra',desconto:'🔻 Desconto'};
+    const outrosTipos=[...new Set(events.filter(l=>l.tipo!=='diaria').map(l=>l.tipo))];
+    html+='<div class="cal-cell '+(events.length?'has-event ':' ')+(isoDay===hoje?'today':'')+'" onclick="mostrarDiaDetail(\''+isoDay+'\')">'+'<div class="cal-num">'+d+'</div>'+(qtdDiarias>0?'<div class="cal-event-dot">🌿 '+qtdDiarias+'x diária</div>':'')+(totalDia>0?'<div class="cal-event-val">'+fmtMoeda(totalDia)+'</div>':'')+outrosTipos.map(t=>'<div class="cal-event-dot" style="color:var(--eventide);font-size:9px;">'+(tipoLabel[t]||t)+'</div>').join('')+'</div>';
   }
   document.getElementById('cal-grid').innerHTML = html;
 }
