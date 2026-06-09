@@ -979,14 +979,48 @@ td {
 /* ===== RESPONSIVE ===== */
 @media (max-width: 768px) {
   .sidebar { display: none; }
-  .stats-row { grid-template-columns: 1fr 1fr; }
   .dash-grid { grid-template-columns: 1fr; }
-  .page { padding: 16px; }
+  .cards-grid { grid-template-columns: 1fr 1fr; }
+  .page { padding: 14px 14px 80px; }
+  .topbar { padding: 11px 14px; }
+  .topbar-title { font-size: 15px; }
+  .topbar-actions .btn-sm { font-size: 11px; padding: 4px 8px; }
+  /* Bottom nav */
+  .bottom-nav {
+    display: flex !important;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: rgba(255,255,255,0.95);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-top: 1px solid var(--border);
+    z-index: 50;
+    padding: 6px 0 env(safe-area-inset-bottom, 6px);
+  }
+  .bottom-nav-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 6px 4px;
+    cursor: pointer;
+    color: var(--text-3);
+    font-size: 9.5px;
+    font-weight: 500;
+    transition: color 0.12s;
+    user-select: none;
+  }
+  .bottom-nav-item.active { color: var(--tc); }
+  .bottom-nav-item .bni { font-size: 20px; line-height: 1; }
 }
 
 @media (max-width: 1100px) {
-  .stats-row { grid-template-columns: repeat(2, 1fr); }
+  .cards-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
 }
+
+/* Bottom nav hidden on desktop */
+.bottom-nav { display: none; }
 </style>
 </head>
 <body>
@@ -1299,6 +1333,25 @@ td {
     </div>
 
   </main>
+
+  <!-- BOTTOM NAV (mobile only) -->
+  <nav class="bottom-nav" id="bottom-nav">
+    <div class="bottom-nav-item active" onclick="showPage('dashboard')" data-page="dashboard">
+      <span class="bni">◫</span><span>Início</span>
+    </div>
+    <div class="bottom-nav-item" onclick="showPage('lancamentos')" data-page="lancamentos">
+      <span class="bni">＋</span><span>Lançar</span>
+    </div>
+    <div class="bottom-nav-item" onclick="showPage('extrato')" data-page="extrato">
+      <span class="bni">≡</span><span>Extrato</span>
+    </div>
+    <div class="bottom-nav-item" onclick="showPage('competencias')" data-page="competencias">
+      <span class="bni">◷</span><span>Meses</span>
+    </div>
+    <div class="bottom-nav-item" onclick="showPage('funcionarias')" data-page="funcionarias">
+      <span class="bni">◯</span><span>Pessoas</span>
+    </div>
+  </nav>
 </div>
 
 <!-- MODAL: editar lançamento -->
@@ -1534,6 +1587,10 @@ function showPage(id) {
   const titles = { dashboard:'Dashboard', lancamentos:'Novo Lançamento', extrato:'Extrato Geral', competencias:'Fechamento por Competência', calendario:'Calendário de Trabalho', relatorios:'Relatórios', funcionarias:'Funcionárias', configuracoes:'Configurações' };
   document.getElementById('topbar-title').textContent = titles[id]||'';
   document.querySelectorAll('.nav-item').forEach(n => { if (n.getAttribute('onclick')&&n.getAttribute('onclick').includes(id)) n.classList.add('active'); });
+  // Sync bottom nav
+  document.querySelectorAll('.bottom-nav-item').forEach(n => {
+    n.classList.toggle('active', n.dataset.page === id);
+  });
   if (id==='dashboard') renderDashboard();
   if (id==='extrato') { populateWorkerSelects(); renderExtrato(); }
   if (id==='competencias') { populateWorkerSelects(); renderCompetencias(); }
