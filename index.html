@@ -2041,7 +2041,7 @@ renderDashboard = function() {
   document.getElementById('dash-worker-name').textContent = w ? w.nome : '—';
 
   if (!w) {
-    document.getElementById('cards-grid').innerHTML = '<div class="empty-state"><div class="empty-ico">◯</div><p>Cadastre uma funcionária para começar.</p><br><button class="btn btn-primary" onclick="showPage('funcionarias')">+ Cadastrar Funcionária</button></div>';
+    document.getElementById('cards-grid').innerHTML = '<div class="empty-state"><div class="empty-ico">◯</div><p>Cadastre uma funcionária para começar.</p><br><button class="btn btn-primary" onclick="showPage(\'funcionarias\')">+ Cadastrar Funcionária</button></div>';
     document.getElementById('alertas-container').innerHTML = '';
     document.getElementById('ultimos-tbody').innerHTML = '<tr><td colspan="4"><div class="empty-state"><div class="empty-ico">≡</div><p>Nenhum lançamento ainda.</p></div></td></tr>';
     return;
