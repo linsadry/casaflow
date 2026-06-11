@@ -1395,10 +1395,24 @@ td {
 
     <!-- CONFIGURAÇÕES -->
     <div class="page" id="page-configuracoes">
-      <div class="config-card">
-        <div class="config-card-title">Configurações</div>
+      <div class="config-card" style="margin-bottom:16px;">
+        <div class="config-card-title">Seu nome</div>
+        <p style="font-size:13px;color:var(--text-2);margin-bottom:14px;">Como você quer ser chamada na saudação do app.</p>
+        <div class="field" style="margin-bottom:14px;">
+          <label>Nome</label>
+          <input type="text" id="cfg-owner-name" placeholder="Ex: Adriana">
+        </div>
+        <button class="btn btn-primary" onclick="salvarOwnerName()">Salvar nome</button>
+      </div>
+      <div class="config-card" style="margin-bottom:16px;">
+        <div class="config-card-title">Funcionárias</div>
         <p style="font-size:13px;color:var(--text-2);margin-bottom:16px;">Para editar nome e valor de cada funcionária, acesse a página Funcionárias.</p>
         <button class="btn btn-primary" onclick="showPage('funcionarias')">Ir para Funcionárias</button>
+      </div>
+      <div class="config-card">
+        <div class="config-card-title">Recuperar dados deste dispositivo</div>
+        <p style="font-size:13px;color:var(--text-2);margin-bottom:16px;">Se você tinha lançamentos salvos neste navegador que não apareceram na nuvem, clique abaixo para enviá-los ao Supabase. Lançamentos já existentes não são duplicados.</p>
+        <button class="btn btn-ghost" onclick="recuperarDadosLocais()">Enviar dados locais para a nuvem</button>
       </div>
     </div>
 
@@ -1636,7 +1650,8 @@ async function desbloquear() {
 let state = {
   funcionarias: [],
   lancamentos: [],
-  selectedWorkerId: null
+  selectedWorkerId: null,
+  ownerName: ''
 };
 
 let calYear = new Date().getFullYear();
@@ -1681,6 +1696,11 @@ async function carregarStateSupabase() {
         state.selectedWorkerId = state.funcionarias[0].id;
       }
     }
+    // Carrega nome da proprietária da config
+    try {
+      const { data: cfg } = await sb.from('casaflow_config').select('owner_name').eq('id',1).maybeSingle();
+      if (cfg && cfg.owner_name) state.ownerName = cfg.owner_name;
+    } catch(e) {}
     sbReady = true;
     localStorage.setItem('casaflow_v2', JSON.stringify(state));
   } catch(e) {
@@ -1826,6 +1846,7 @@ function showPage(id) {
   if (id==='calendario') renderCalendario();
   if (id==='relatorios') { populateWorkerSelects(); renderRelatorio(); }
   if (id==='funcionarias') renderFuncionarias();
+  if (id==='configuracoes') { const el=document.getElementById('cfg-owner-name'); if(el) el.value = state.ownerName||''; }
   if (id==='lancamentos') { populateWorkerSelects(); resetForm(); }
 }
 
@@ -2280,7 +2301,7 @@ renderDashboard = function() {
   // Greeting + date
   const now = new Date();
   document.getElementById('dash-date').textContent = now.toLocaleDateString('pt-BR', {weekday:'long', day:'numeric', month:'long', year:'numeric'});
-  document.getElementById('dash-worker-name').textContent = w ? w.nome : '—';
+  document.getElementById('dash-worker-name').textContent = state.ownerName || 'bem-vinda';
 
   if (!w) {
     document.getElementById('cards-grid').innerHTML = '<div class="empty-state"><div class="empty-ico">◯</div><p>Cadastre uma funcionária para começar.</p><br><button class="btn btn-primary" onclick="showPage(\'funcionarias\')">+ Cadastrar Funcionária</button></div>';
@@ -2613,6 +2634,61 @@ fecharDetalhe = function(e) {
   if (!e || e.target === document.getElementById('detail-overlay'))
     document.getElementById('detail-overlay').classList.remove('open');
 };
+
+// Salva nome da proprietária (na config do Supabase)
+async function salvarOwnerName() {
+  const nome = document.getElementById('cfg-owner-name').value.trim();
+  state.ownerName = nome;
+  salvarState();
+  if (sb) {
+    try {
+      const { data } = await sb.from('casaflow_config').select('*').eq('id',1).maybeSingle();
+      await sb.from('casaflow_config').upsert({ id:1, pin_hash:data?.pin_hash, pin_salt:data?.pin_salt, owner_name:nome });
+    } catch(e) { console.warn('Salvar owner name falhou', e); }
+  }
+  showToast('Nome salvo!');
+  renderDashboard();
+}
+
+// Recupera dados do localStorage e envia ao Supabase (merge, sem duplicar)
+async function recuperarDadosLocais() {
+  if (!sb) { showToast('Supabase indisponível.'); return; }
+  let local = null;
+  const v2 = localStorage.getItem('casaflow_v2');
+  const v1 = localStorage.getItem('diarista_app');
+  try {
+    if (v2) { const d = JSON.parse(v2); if ((d.funcionarias&&d.funcionarias.length)||(d.lancamentos&&d.lancamentos.length)) local = d; }
+  } catch(e) {}
+  if (!local && v1) {
+    try {
+      const o = JSON.parse(v1);
+      if (o.lancamentos && o.lancamentos.length) {
+        const wid = uid();
+        local = {
+          funcionarias: [{id:wid, nome:o.config?.nome||'Diarista', valorDiaria:o.config?.valorDiaria||0, status:'ativa', obs:''}],
+          lancamentos: (o.lancamentos||[]).map(l=>({...l, workerId:wid}))
+        };
+      }
+    } catch(e) {}
+  }
+  if (!local) { showToast('Nenhum dado local encontrado.'); return; }
+
+  // IDs já existentes na nuvem
+  const existentesFunc = new Set(state.funcionarias.map(f=>f.id));
+  const existentesLanc = new Set(state.lancamentos.map(l=>l.id));
+
+  let nf = 0, nl = 0;
+  for (const f of (local.funcionarias||[])) {
+    if (!existentesFunc.has(f.id)) { await sbUpsertFuncionaria(f); nf++; }
+  }
+  for (const l of (local.lancamentos||[])) {
+    if (!existentesLanc.has(l.id)) { await sbUpsertLancamento(l); nl++; }
+  }
+  await carregarStateSupabase();
+  populateWorkerSelects();
+  renderDashboard();
+  showToast('Recuperado: '+nf+' funcionária(s), '+nl+' lançamento(s).');
+}
 
 // Migração one-time: se há dados no localStorage antigo e Supabase está vazio,
 // oferece importar. Detecta dados antigos do formato diarista_app também.
