@@ -1412,7 +1412,9 @@ td {
       <div class="config-card">
         <div class="config-card-title">Recuperar dados deste dispositivo</div>
         <p style="font-size:13px;color:var(--text-2);margin-bottom:16px;">Se você tinha lançamentos salvos neste navegador que não apareceram na nuvem, clique abaixo para enviá-los ao Supabase. Lançamentos já existentes não são duplicados.</p>
-        <button class="btn btn-ghost" onclick="recuperarDadosLocais()">Enviar dados locais para a nuvem</button>
+        <button class="btn btn-ghost" onclick="recuperarDadosLocais()" style="margin-bottom:10px;">Enviar dados locais para a nuvem</button>
+        <br>
+        <button class="btn btn-ghost" onclick="recuperarSafetyBackup()">Recuperar cópia de segurança</button>
       </div>
     </div>
 
@@ -1677,20 +1679,55 @@ function carregarState() {
   }
 }
 
-// Carrega TUDO do Supabase (fonte da verdade)
+// Carrega TUDO do Supabase (fonte da verdade), com proteção anti-perda
 async function carregarStateSupabase() {
   if (!sb) { carregarState(); return; }
+
+  // SEGURANÇA: guarda uma cópia do localStorage atual ANTES de qualquer coisa,
+  // num slot separado que nunca é sobrescrito automaticamente.
+  const cacheAtual = localStorage.getItem('casaflow_v2');
+  if (cacheAtual) {
+    try {
+      const c = JSON.parse(cacheAtual);
+      if ((c.lancamentos && c.lancamentos.length) || (c.funcionarias && c.funcionarias.length)) {
+        localStorage.setItem('casaflow_safety_backup', cacheAtual);
+      }
+    } catch(e) {}
+  }
+
+  // Snapshot do que tinha localmente antes
+  let localFuncs = [], localLancs = [];
+  try {
+    const c = cacheAtual ? JSON.parse(cacheAtual) : null;
+    if (c) { localFuncs = c.funcionarias || []; localLancs = c.lancamentos || []; }
+  } catch(e) {}
+
   try {
     const [{ data: funcs }, { data: lancs }] = await Promise.all([
       sb.from('casaflow_funcionarias').select('*').order('created_at'),
       sb.from('casaflow_lancamentos').select('*').order('data')
     ]);
-    state.funcionarias = (funcs||[]).map(f => ({
+    const cloudFuncs = (funcs||[]).map(f => ({
       id: f.id, nome: f.nome, valorDiaria: parseFloat(f.valor_diaria)||0, status: f.status||'ativa', obs: f.obs||''
     }));
-    state.lancamentos = (lancs||[]).map(l => ({
+    const cloudLancs = (lancs||[]).map(l => ({
       id: l.id, workerId: l.worker_id, data: l.data, competencia: l.competencia, tipo: l.tipo, valor: parseFloat(l.valor), obs: l.obs||''
     }));
+
+    // MERGE: une nuvem + local por ID (nuvem tem prioridade em conflitos).
+    // Isso evita perder lançamentos que existiam só localmente.
+    const funcMap = {}; cloudFuncs.forEach(f=>funcMap[f.id]=f); localFuncs.forEach(f=>{ if(!funcMap[f.id]) funcMap[f.id]=f; });
+    const lancMap = {}; cloudLancs.forEach(l=>lancMap[l.id]=l); localLancs.forEach(l=>{ if(!lancMap[l.id]) lancMap[l.id]=l; });
+
+    state.funcionarias = Object.values(funcMap);
+    state.lancamentos  = Object.values(lancMap);
+
+    // Se o local tinha algo que não estava na nuvem, envia de volta (auto-recuperação)
+    const cloudFuncIds = new Set(cloudFuncs.map(f=>f.id));
+    const cloudLancIds = new Set(cloudLancs.map(l=>l.id));
+    for (const f of localFuncs) if (!cloudFuncIds.has(f.id)) sbUpsertFuncionaria(f);
+    for (const l of localLancs) if (!cloudLancIds.has(l.id)) sbUpsertLancamento(l);
+
     if (state.funcionarias.length > 0) {
       if (!state.selectedWorkerId || !state.funcionarias.find(f=>f.id===state.selectedWorkerId)) {
         state.selectedWorkerId = state.funcionarias[0].id;
@@ -1751,8 +1788,14 @@ function fmtComp(ym) {
   return meses[parseInt(m)-1]+'/'+y;
 }
 function fmtMoeda(v) { return 'R$ '+parseFloat(v||0).toFixed(2).replace('.',',').replace(/\B(?=(\d{3})+(?!\d))/g,'.'); }
-function today() { return new Date().toISOString().split('T')[0]; }
-function todayYM() { return new Date().toISOString().slice(0,7); }
+function today() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+function todayYM() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+}
 function uid() { return Date.now().toString(36)+Math.random().toString(36).slice(2); }
 function showToast(msg,dur=2500) { const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),dur); }
 
@@ -2648,6 +2691,27 @@ async function salvarOwnerName() {
   }
   showToast('Nome salvo!');
   renderDashboard();
+}
+
+// Recupera a cópia de segurança automática (slot casaflow_safety_backup)
+async function recuperarSafetyBackup() {
+  const bk = localStorage.getItem('casaflow_safety_backup');
+  if (!bk) { showToast('Nenhuma cópia de segurança encontrada.'); return; }
+  let data;
+  try { data = JSON.parse(bk); } catch(e) { showToast('Cópia de segurança corrompida.'); return; }
+  const funcs = data.funcionarias || [];
+  const lancs = data.lancamentos || [];
+  if (!funcs.length && !lancs.length) { showToast('Cópia de segurança vazia.'); return; }
+
+  const existentesFunc = new Set(state.funcionarias.map(f=>f.id));
+  const existentesLanc = new Set(state.lancamentos.map(l=>l.id));
+  let nf=0, nl=0;
+  for (const f of funcs) if (!existentesFunc.has(f.id)) { await sbUpsertFuncionaria(f); nf++; }
+  for (const l of lancs) if (!existentesLanc.has(l.id)) { await sbUpsertLancamento(l); nl++; }
+  await carregarStateSupabase();
+  populateWorkerSelects();
+  renderDashboard();
+  showToast('Cópia recuperada: '+nf+' funcionária(s), '+nl+' lançamento(s).');
 }
 
 // Recupera dados do localStorage e envia ao Supabase (merge, sem duplicar)
